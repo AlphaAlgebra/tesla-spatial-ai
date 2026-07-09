@@ -1,0 +1,34 @@
+import torch
+
+def project_3d_to_2d(points_3d, intrinsic_matrix, extrinsic_matrix):
+    """
+    Projects a batch of 3D points in world space onto a 2D camera pixel plane.
+    
+    Args:
+        points_3d (Tensor): Shape (B, N, 3) representing (X, Y, Z) world coordinates
+        intrinsic_matrix (Tensor): Shape (B, 3, 3) internal camera calibration
+        extrinsic_matrix (Tensor): Shape (B, 4, 4) camera position relative to world
+        
+    Returns:
+        Tensor: Shape (B, N, 2) representing (u, v) pixel coordinates
+    """
+    batch_size, num_points, _ = points_3d.shape
+    
+    # 1. Convert 3D points to Homogeneous coordinates (X, Y, Z, 1)
+    ones = torch.ones((batch_size, num_points, 1), device=points_3d.device)
+    points_homogeneous = torch.cat([points_3d, ones], dim=-1) # (B, N, 4)
+    
+    # 2. Transform world coordinates to camera relative coordinates
+    # Extrinsic matrix transforms world space -> camera space
+    points_cam = torch.bmm(points_homogeneous, extrinsic_matrix.transpose(1, 2)) # (B, N, 4)
+    points_cam = points_cam[..., :3] # Keep (X_c, Y_c, Z_c)
+    
+    # 3. Project camera coordinates to 2D pixel space using intrinsic matrix
+    # Equation: x = K * X_c
+    points_pixel_homo = torch.bmm(points_cam, intrinsic_matrix.transpose(1, 2)) # (B, N, 3)
+    
+    # 4. Normalize by depth (Z coordinate) to resolve perspective distortion
+    depth = points_pixel_homo[..., 2:3] + 1e-6 # Prevent division by zero
+    pixels_2d = points_pixel_homo[..., :2] / depth
+    
+    return pixels_2d
